@@ -94,3 +94,14 @@ class CannalogApi:
             self._token,
             json={"readings": readings},
         )
+
+    async def report_mappings(self, targets: list[dict[str, str]]) -> dict[str, Any]:
+        """Tell Cannalog which environments / reservoirs this HA is configured
+        to send readings for, so the app shows LIVE only for those."""
+        return await _request(
+            self._session,
+            "PUT",
+            f"{self._base}/integrations/ha/mappings",
+            self._token,
+            json={"targets": targets},
+        )

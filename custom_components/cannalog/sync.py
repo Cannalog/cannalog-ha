@@ -101,6 +101,10 @@ class CannalogSync:
         self.last_upload: datetime | None = None
         self.last_error: str | None = None
         self.total_sent = 0
+        # Whether Cannalog has been told the current set of mapped targets.
+        # Sent on start (which includes every reload after Configure is
+        # saved) and retried before uploads until it succeeds.
+        self._mappings_reported = False
 
     # ------------------------------------------------------------- lifecycle
     @property
@@ -137,6 +141,7 @@ class CannalogSync:
         )
         _LOGGER.debug("Cannalog: %d mappings, %d-min interval, %d queued",
                       len(self.mappings), self.interval, len(self._queue))
+        self.hass.async_create_task(self.async_report_mappings())
         if self._queue:
             self.hass.async_create_task(self.async_upload())
 
@@ -175,8 +180,29 @@ class CannalogSync:
         self._store.async_delay_save(lambda: {"queue": self._queue}, 30)
         self.hass.async_create_task(self.async_upload())
 
+    # ------------------------------------------------------------- mappings
+    async def async_report_mappings(self) -> None:
+        targets = sorted(
+            {(m["target_type"], m["target_id"]) for m in self.mappings}
+        )
+        try:
+            await self.api.report_mappings(
+                [{"target_type": t, "target_id": i} for t, i in targets]
+            )
+            self._mappings_reported = True
+        except CannalogAuthError:
+            pass  # the upload path starts reauth
+        except CannalogConnectionError as err:
+            _LOGGER.debug("Cannalog unreachable, mappings report retried later: %s", err)
+        except CannalogError as err:
+            # An older Cannalog server without this endpoint: nothing to retry.
+            _LOGGER.debug("Cannalog did not accept the mappings report: %s", err)
+            self._mappings_reported = True
+
     # --------------------------------------------------------------- upload
     async def async_upload(self) -> None:
+        if not self._mappings_reported:
+            await self.async_report_mappings()
         if self._uploading or not self._queue:
             self._notify()
             return

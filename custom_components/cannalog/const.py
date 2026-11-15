@@ -1,7 +1,7 @@
 """Constants for the Cannalog integration."""
 
 DOMAIN = "cannalog"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 DEFAULT_API_URL = "https://api.cannalog.co.za"
 
