@@ -1,0 +1,112 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Cannalog",
+        "description": "In the Cannalog app open **Settings → Integrations → Home Assistant** and tap **Get pairing code**. Codes expire after 15 minutes.",
+        "data": {
+          "pairing_code": "Pairing code",
+          "api_url": "Cannalog server"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-connect Cannalog",
+        "description": "Cannalog no longer accepts this Home Assistant's token (it was disconnected in the app or replaced). Enter a new pairing code from the Cannalog app.",
+        "data": {
+          "pairing_code": "Pairing code"
+        }
+      },
+      "reconfigure": {
+        "title": "Change Cannalog server",
+        "description": "Sensor mappings are kept. Leave the pairing code empty to keep the current connection; enter one only if the new server asks you to re-connect.",
+        "data": {
+          "api_url": "Cannalog server",
+          "pairing_code": "Pairing code (optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_code": "That pairing code is invalid or has expired - get a new one in the Cannalog app.",
+      "cannot_connect": "Could not reach the Cannalog server.",
+      "wrong_account": "That code belongs to a different Cannalog account.",
+      "unknown": "Unexpected error - check the Home Assistant log.",
+      "token_not_accepted": "That server doesn't recognise this connection - enter a pairing code from the Cannalog app."
+    },
+    "abort": {
+      "already_configured": "This Cannalog account is already connected.",
+      "reauth_successful": "Re-connected to Cannalog.",
+      "reconfigure_successful": "Cannalog server updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cannalog",
+        "menu_options": {
+          "map_target": "Map sensors to an environment or reservoir",
+          "settings": "Upload settings"
+        }
+      },
+      "map_target": {
+        "title": "Choose what to map",
+        "description": "Pick a Cannalog environment or reservoir. ✓ = already has sensors mapped.",
+        "data": {
+          "target": "Environment / reservoir"
+        }
+      },
+      "sensors_environment": {
+        "title": "Sensors for {target}",
+        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it.",
+        "data": {
+          "temperature": "Air temperature",
+          "humidity": "Relative humidity",
+          "vpd": "VPD (kPa)",
+          "leaf_temperature": "Leaf temperature",
+          "dew_point": "Dew point",
+          "co2": "CO2 (ppm)",
+          "ppfd": "PPFD (µmol/m²/s)"
+        }
+      },
+      "sensors_reservoir": {
+        "title": "Sensors for {target}",
+        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it.",
+        "data": {
+          "ph": "pH",
+          "ec": "EC (µS/cm or mS/cm, converted automatically)",
+          "water_temperature": "Water temperature",
+          "tds": "TDS (ppm)",
+          "orp": "ORP (mV)",
+          "level": "Level"
+        }
+      },
+      "settings": {
+        "title": "Upload settings",
+        "description": "Readings are averaged over each interval and uploaded at the end of it.",
+        "data": {
+          "interval": "Interval"
+        }
+      }
+    },
+    "abort": {
+      "cannot_connect": "Could not reach the Cannalog server.",
+      "auth_failed": "Cannalog rejected the token - re-connect the integration.",
+      "no_targets": "Your Cannalog account has no environments or reservoirs yet - create one in the app first."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "last_upload": {
+        "name": "Last upload"
+      },
+      "queued": {
+        "name": "Queued readings"
+      },
+      "sent": {
+        "name": "Readings sent"
+      },
+      "mapped": {
+        "name": "Mapped sensors"
+      }
+    }
+  }
+}
