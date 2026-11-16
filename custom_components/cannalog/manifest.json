@@ -2,7 +2,8 @@
   "domain": "cannalog",
   "name": "Cannalog",
   "after_dependencies": [
-    "camera"
+    "camera",
+    "ffmpeg"
   ],
   "codeowners": [
     "@Zeus540"
@@ -13,5 +14,5 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/cannalog/cannalog-ha/issues",
   "requirements": [],
-  "version": "0.5.0"
+  "version": "0.6.0"
 }

@@ -19,6 +19,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_utc_time_change
 from homeassistant.helpers.start import async_at_started
@@ -236,16 +237,14 @@ class CannalogSync:
         next tick's."""
         if self._snapping or not self.cameras:
             return
-        from homeassistant.components.camera import async_get_image  # camera may load after us
-
         self._snapping = True
         try:
             for cam in self.cameras:
                 try:
-                    image = await async_get_image(self.hass, cam["entity_id"], timeout=20)
+                    content, content_type = await self._grab_image(cam["entity_id"], timeout=20)
                     stamp = dt_util.utcnow().replace(microsecond=0).isoformat().replace("+00:00", "Z")
                     result = await self.api.push_snapshot(
-                        cam["environment_id"], image.content, image.content_type, stamp)
+                        cam["environment_id"], content, content_type, stamp)
                     if result.get("stored") is False:
                         _LOGGER.debug("Cannalog skipped %s frame: %s", cam["entity_id"], result.get("reason"))
                     self.last_snapshot = dt_util.utcnow()
@@ -265,16 +264,21 @@ class CannalogSync:
 
     # ------------------------------------------------------------ live view
     async def _live_poll_loop(self) -> None:
-        """Ask Cannalog which environments are being watched; start/stop a frame
-        loop per environment accordingly. Outbound only, like everything else."""
+        """Ask Cannalog which environments are being watched and run one live
+        task per watched environment: real video (ffmpeg -> SRT to Cannalog's
+        relay) when the server offers it and the camera has a stream, otherwise
+        still frames. Outbound only, like everything else."""
         cams = {c["environment_id"]: c["entity_id"] for c in self.cameras}
         backoff = 5
-        watched: list[str] = []
+        have: list[str] = []
+        modes: dict[str, tuple] = {}  # env -> the mode its running task was started with
         while True:
             try:
-                # `have` = the server's own last answer, so an environment watched
-                # without a camera here doesn't make every poll return at once.
-                watched = await self.api.live_poll(watched, LIVE_POLL_TIMEOUT)
+                # `have` = the server's own last answer ("env:key" when it sent
+                # stream keys), so an environment watched without a camera here
+                # doesn't make every poll return at once, and a restarted
+                # session (new key) is noticed.
+                answer = await self.api.live_poll(have, LIVE_POLL_TIMEOUT)
                 backoff = 5
             except asyncio.CancelledError:
                 raise
@@ -287,22 +291,123 @@ class CannalogSync:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 300)
                 continue
-            wanted = {e for e in watched if e in cams}
+            watched, video = answer["environments"], answer["video"]
+            have = [f"{e}:{video[e]['stream_key']}" if e in video else e for e in watched]
+
+            wanted: dict[str, tuple] = {}
+            for env_id in watched:
+                if env_id not in cams:
+                    continue
+                source = await self._stream_source(cams[env_id]) if env_id in video else None
+                wanted[env_id] = ("video", source, video[env_id]["srt_url"]) if source else ("frames",)
+
             for env_id in list(self._live):
-                if env_id not in wanted:
+                if modes.get(env_id) != wanted.get(env_id):
                     self._live.pop(env_id).cancel()
-            for env_id in wanted:
+                    modes.pop(env_id, None)
+            for env_id, mode in wanted.items():
                 task = self._live.get(env_id)
                 if task is None or task.done():
+                    coro = (self._live_video(env_id, mode[1], mode[2]) if mode[0] == "video"
+                            else self._live_frames(env_id, cams[env_id]))
                     self._live[env_id] = self.entry.async_create_background_task(
-                        self.hass, self._live_frames(env_id, cams[env_id]), f"{DOMAIN}_live_{env_id}")
+                        self.hass, coro, f"{DOMAIN}_live_{env_id}")
+                    modes[env_id] = mode
             if sorted(wanted) != self.live_viewing:
                 self.live_viewing = sorted(wanted)
                 self._notify()
 
-    async def _live_frames(self, environment_id: str, entity_id: str) -> None:
-        from homeassistant.components.camera import async_get_image
+    async def _stream_source(self, entity_id: str) -> str | None:
+        """The camera's video stream URL (RTSP etc.), or None for still-only cameras."""
+        from homeassistant.components.camera import async_get_stream_source
 
+        try:
+            return await async_get_stream_source(self.hass, entity_id)
+        except Exception as err:  # noqa: BLE001 - camera missing / no stream support
+            _LOGGER.debug("No stream source for %s: %s", entity_id, err)
+            return None
+
+    def _ffmpeg_binary(self) -> str:
+        try:
+            from homeassistant.components.ffmpeg import get_ffmpeg_manager
+
+            return get_ffmpeg_manager(self.hass).binary
+        except Exception:  # noqa: BLE001 - ffmpeg integration not set up
+            return "ffmpeg"
+
+    async def _live_video(self, environment_id: str, source: str, srt_url: str) -> None:
+        """Forward the camera's stream to Cannalog's relay as-is (no re-encode,
+        so it costs the host very little) until cancelled. ffmpeg is restarted
+        if it exits (camera or network hiccup) while still being watched."""
+        cmd = [self._ffmpeg_binary(), "-hide_banner", "-nostdin", "-loglevel", "error"]
+        if source.startswith("rtsp"):
+            cmd += ["-rtsp_transport", "tcp"]
+        cmd += ["-i", source, "-map", "0:v:0", "-c:v", "copy", "-an", "-f", "mpegts", srt_url]
+        failures = 0
+        _LOGGER.debug("Cannalog live video started for %s", environment_id)
+        try:
+            while failures < 10:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+                try:
+                    started = asyncio.get_running_loop().time()
+                    _, err = await proc.communicate()
+                except asyncio.CancelledError:
+                    if proc.returncode is None:
+                        proc.terminate()
+                        try:
+                            await asyncio.wait_for(proc.wait(), 5)
+                        except asyncio.TimeoutError:
+                            proc.kill()
+                    raise
+                ran = asyncio.get_running_loop().time() - started
+                failures = 0 if ran > 30 else failures + 1
+                _LOGGER.debug("Cannalog live video ffmpeg exited (%s) after %.0fs: %s",
+                              proc.returncode, ran, (err or b"").decode(errors="replace")[-300:])
+                await asyncio.sleep(min(2 * failures, 10))
+        finally:
+            if self._live.get(environment_id) is asyncio.current_task():
+                self._live.pop(environment_id, None)
+            _LOGGER.debug("Cannalog live video stopped for %s", environment_id)
+
+    async def _grab_image(self, entity_id: str, timeout: int = 10,
+                          size: tuple[int, int] | None = None) -> tuple[bytes, str]:
+        """A still from the camera; for stream-only cameras (no still image
+        support) one frame is grabbed from its stream with ffmpeg instead."""
+        from homeassistant.components.camera import async_get_image  # camera may load after us
+
+        try:
+            kw = {"width": size[0], "height": size[1]} if size else {}
+            image = await async_get_image(self.hass, entity_id, timeout=timeout, **kw)
+            return image.content, image.content_type
+        except Exception as err:  # noqa: BLE001 - HomeAssistantError: no still image
+            source = await self._stream_source(entity_id)
+            if not source:
+                raise
+            _LOGGER.debug("No still from %s (%s), grabbing a frame from its stream", entity_id, err)
+        cmd = [self._ffmpeg_binary(), "-hide_banner", "-nostdin", "-loglevel", "error"]
+        if source.startswith("rtsp"):
+            cmd += ["-rtsp_transport", "tcp"]
+        cmd += ["-i", source, "-frames:v", "1"]
+        if size:
+            cmd += ["-vf", f"scale='min({size[0]},iw)':-2"]
+        cmd += ["-f", "image2", "-c:v", "mjpeg", "-q:v", "4", "pipe:1"]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise HomeAssistantError(f"Timed out grabbing a frame from {entity_id}") from None
+        if proc.returncode or not out:
+            raise HomeAssistantError(
+                f"Could not grab a frame from {entity_id}: {(err or b'').decode(errors='replace')[-200:]}")
+        return out, "image/jpeg"
+
+    async def _live_frames(self, environment_id: str, entity_id: str) -> None:
         loop = asyncio.get_running_loop()
         failures = 0
         _LOGGER.debug("Cannalog live view started for %s (%s)", environment_id, entity_id)
@@ -310,10 +415,8 @@ class CannalogSync:
             while True:
                 began = loop.time()
                 try:
-                    image = await async_get_image(
-                        self.hass, entity_id, timeout=10,
-                        width=LIVE_FRAME_SIZE[0], height=LIVE_FRAME_SIZE[1])
-                    await self.api.push_live_frame(environment_id, image.content, image.content_type)
+                    content, content_type = await self._grab_image(entity_id, 10, LIVE_FRAME_SIZE)
+                    await self.api.push_live_frame(environment_id, content, content_type)
                     failures = 0
                 except (CannalogGoneError, CannalogAuthError):
                     return  # nobody watching any more / token revoked

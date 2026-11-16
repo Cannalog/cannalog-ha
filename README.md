@@ -38,7 +38,12 @@ Units are converted automatically (°F → °C, µS/cm → mS/cm).
 
 Any Home Assistant `camera` entity can be mapped to an environment. A still frame is sent at the snapshot interval and shown on that environment in the Cannalog app. Cannalog keeps only the latest frame, not a history. Near-black frames (lights off) are ignored, so the app keeps showing the last lit view overnight.
 
-**Live view.** Tap **LIVE** on the environment's cover in the app to watch the camera near-live (a fresh frame every ~1.5-2 s). Home Assistant only sends frames while the viewer is open: it asks Cannalog over its own outbound connection, so nothing is opened into your network. Frames are relayed to the app, never stored, and the view pauses after 10 minutes.
+**Live view.** Tap **LIVE** on the environment's cover in the app to watch the camera. Home Assistant only sends anything while the viewer is open: it asks Cannalog over its own outbound connection, so nothing is opened into your network, and the view pauses after 10 minutes.
+
+- Cameras with a video stream (RTSP etc., e.g. via go2rtc) send **real video**: Home Assistant's ffmpeg forwards the stream as-is (no re-encoding, so little CPU) over encrypted SRT to Cannalog's relay. Uses your upload bandwidth at the stream's bitrate while someone watches.
+- Still-image-only cameras send a fresh frame every ~1.5-2 s instead.
+
+Frames and video are relayed to the app, never stored. A camera that only has a stream (no still image) still works for snapshots: a frame is grabbed from its stream.
 
 ## Diagnostics
 

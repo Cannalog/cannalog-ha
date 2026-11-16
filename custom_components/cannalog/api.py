@@ -116,14 +116,20 @@ class CannalogApi:
             self._session, "POST", f"{self._base}/integrations/ha/snapshots", self._token, data=form
         )
 
-    async def live_poll(self, have: list[str], timeout: float) -> list[str]:
-        """Long-poll: environments someone is watching live right now."""
+    async def live_poll(self, have: list[str], timeout: float) -> dict[str, Any]:
+        """Long-poll: environments someone is watching live right now.
+
+        Returns {"environments": [...], "video": {env_id: {"stream_key", "srt_url"}}};
+        `video` is empty when the server has no video relay (frames only)."""
         result = await _request(
             self._session, "GET",
             f"{self._base}/integrations/ha/live/poll?have={','.join(sorted(have))}",
             self._token, timeout=aiohttp.ClientTimeout(total=timeout),
         )
-        return list(result.get("environments", []))
+        return {
+            "environments": list(result.get("environments", [])),
+            "video": dict(result.get("video") or {}),
+        }
 
     async def push_live_frame(self, environment_id: str, image: bytes, content_type: str) -> None:
         """One live frame, relayed to the app. Raises CannalogGoneError once nobody is watching."""
