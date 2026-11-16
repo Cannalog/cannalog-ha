@@ -43,6 +43,8 @@ Any Home Assistant `camera` entity can be mapped to an environment. A still fram
 - Cameras with a video stream (RTSP etc., e.g. via go2rtc) send **real video**: Home Assistant's ffmpeg forwards the stream as-is (no re-encoding, so little CPU) over encrypted SRT to Cannalog's relay. Uses your upload bandwidth at the stream's bitrate while someone watches.
 - Still-image-only cameras send a fresh frame every ~1.5-2 s instead.
 
+- **Audio** (optional, Configure → Upload settings → *Send audio with live video*): the camera stream's audio track is forwarded too, and the app's speaker button unmutes it. Off by default — the mic hears whatever is near the camera.
+
 Frames and video are relayed to the app, never stored. A camera that only has a stream (no still image) still works for snapshots: a frame is grabbed from its stream.
 
 ### Feed cycles (pump / valve)

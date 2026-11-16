@@ -84,10 +84,11 @@
       },
       "settings": {
         "title": "Upload settings",
-        "description": "Readings are averaged over each interval and uploaded at the end of it. Camera snapshots are sent at their own interval; Cannalog keeps only the latest one, and frames taken with the lights off are ignored.",
+        "description": "Readings are averaged over each interval and uploaded at the end of it. Camera snapshots are sent at their own interval; Cannalog keeps only the latest one, and frames taken with the lights off are ignored. **Send audio with live video** forwards the camera's microphone while someone has the live view open (off by default: the mic hears whatever is near the camera).",
         "data": {
           "interval": "Readings interval",
-          "snapshot_interval": "Camera snapshot interval"
+          "snapshot_interval": "Camera snapshot interval",
+          "live_audio": "Send audio with live video"
         }
       }
     },

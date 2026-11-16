@@ -13,6 +13,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import instance_id
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
@@ -42,6 +43,7 @@ from .const import (
     METRICS,
     OPT_CAMERAS,
     OPT_INTERVAL,
+    OPT_LIVE_AUDIO,
     OPT_MAPPINGS,
     OPT_PUMPS,
     OPT_SNAPSHOT_INTERVAL,
@@ -316,7 +318,8 @@ class CannalogOptionsFlow(OptionsFlow):
     async def async_step_settings(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
             return self._save(**{OPT_INTERVAL: int(user_input[OPT_INTERVAL]),
-                                  OPT_SNAPSHOT_INTERVAL: int(user_input[OPT_SNAPSHOT_INTERVAL])})
+                                  OPT_SNAPSHOT_INTERVAL: int(user_input[OPT_SNAPSHOT_INTERVAL]),
+                                  OPT_LIVE_AUDIO: bool(user_input.get(OPT_LIVE_AUDIO, False))})
         return self.async_show_form(
             step_id="settings",
             data_schema=vol.Schema({
@@ -329,5 +332,7 @@ class CannalogOptionsFlow(OptionsFlow):
                     SelectSelector(SelectSelectorConfig(
                         options=[SelectOptionDict(value=str(i), label=f"{i} min") for i in SNAPSHOT_INTERVAL_CHOICES],
                         mode=SelectSelectorMode.DROPDOWN)),
+                vol.Required(OPT_LIVE_AUDIO, default=bool(self.config_entry.options.get(OPT_LIVE_AUDIO, False))):
+                    BooleanSelector(),
             }),
         )

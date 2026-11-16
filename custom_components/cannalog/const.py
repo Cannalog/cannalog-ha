@@ -1,7 +1,7 @@
 """Constants for the Cannalog integration."""
 
 DOMAIN = "cannalog"
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 DEFAULT_API_URL = "https://api.cannalog.co.za"
 
@@ -34,6 +34,10 @@ PUMP_RUNNING_STATES = {"on", "open"}
 MIN_RUN_SECONDS = 5  # shorter = a relay blip, not a feed
 MAX_RUNS_QUEUE = 2000
 RUNS_CHUNK = 100
+
+# Live video: forward the camera's audio track too (off unless the grower
+# turns it on — a mic in a grow room hears whatever is near it).
+OPT_LIVE_AUDIO = "live_audio"
 
 # Live view (on demand, only while someone has the viewer open in the app)
 LIVE_FRAME_INTERVAL = 1.5  # seconds between frames

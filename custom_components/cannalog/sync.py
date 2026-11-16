@@ -34,6 +34,7 @@ from .const import (
     LIVE_FRAME_SIZE,
     LIVE_POLL_TIMEOUT,
     OPT_CAMERAS,
+    OPT_LIVE_AUDIO,
     OPT_SNAPSHOT_INTERVAL,
     DOMAIN,
     MAX_QUEUE,
@@ -374,7 +375,13 @@ class CannalogSync:
         cmd = [self._ffmpeg_binary(), "-hide_banner", "-nostdin", "-loglevel", "error"]
         if source.startswith("rtsp"):
             cmd += ["-rtsp_transport", "tcp"]
-        cmd += ["-i", source, "-map", "0:v:0", "-c:v", "copy", "-an", "-f", "mpegts", srt_url]
+        cmd += ["-i", source, "-map", "0:v:0", "-c:v", "copy"]
+        if self.entry.options.get(OPT_LIVE_AUDIO):
+            # The camera's first audio track, if it has one ("?"), as-is.
+            cmd += ["-map", "0:a:0?", "-c:a", "copy"]
+        else:
+            cmd += ["-an"]
+        cmd += ["-f", "mpegts", srt_url]
         failures = 0
         _LOGGER.debug("Cannalog live video started for %s", environment_id)
         try:
