@@ -118,6 +118,7 @@ class LastSnapshotSensor(_Base):
         return {
             "last_error": self.sync.last_snapshot_error,
             "interval_minutes": self.sync.snapshot_interval,
+            "live_viewing": self.sync.live_viewing,
             "cameras": [f"{c.get('environment_name', c['environment_id'])} <- {c['entity_id']}"
                         for c in self.sync.cameras],
         }

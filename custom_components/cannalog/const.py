@@ -1,7 +1,7 @@
 """Constants for the Cannalog integration."""
 
 DOMAIN = "cannalog"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 DEFAULT_API_URL = "https://api.cannalog.co.za"
 
@@ -23,6 +23,11 @@ OPT_SNAPSHOT_INTERVAL = "snapshot_interval"  # minutes
 DEFAULT_SNAPSHOT_INTERVAL = 30
 SNAPSHOT_INTERVAL_CHOICES = [5, 10, 15, 30, 60]
 CAMERA_FIELD = "camera"
+
+# Live view (on demand, only while someone has the viewer open in the app)
+LIVE_FRAME_INTERVAL = 1.5  # seconds between frames
+LIVE_FRAME_SIZE = (1280, 720)
+LIVE_POLL_TIMEOUT = 40  # seconds; the server answers within ~25
 
 # Readings per Cannalog target type. Must match the API's METRICS table.
 # value: (label, device_class used to pre-filter the entity picker or None)

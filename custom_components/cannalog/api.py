@@ -18,6 +18,10 @@ class CannalogAuthError(CannalogError):
     """Token or pairing code rejected."""
 
 
+class CannalogGoneError(CannalogError):
+    """410: the thing this request is for has ended (e.g. nobody watching any more)."""
+
+
 class CannalogConnectionError(CannalogError):
     """Cannalog unreachable or returned a server error (retry later)."""
 
@@ -29,14 +33,17 @@ async def _request(
     token: str | None = None,
     json: Any = None,
     data: Any = None,
+    timeout: aiohttp.ClientTimeout = TIMEOUT,
 ) -> Any:
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        async with session.request(method, url, json=json, data=data, headers=headers, timeout=TIMEOUT) as resp:
+        async with session.request(method, url, json=json, data=data, headers=headers, timeout=timeout) as resp:
             if resp.status in (401, 403):
                 raise CannalogAuthError(await _message(resp))
+            if resp.status == 410:
+                raise CannalogGoneError(await _message(resp))
             if resp.status >= 400:
                 msg = await _message(resp)
                 if resp.status >= 500 or resp.status == 429:
@@ -107,6 +114,26 @@ class CannalogApi:
         form.add_field("image", image, filename=f"snapshot.{ext}", content_type=content_type or "image/jpeg")
         return await _request(
             self._session, "POST", f"{self._base}/integrations/ha/snapshots", self._token, data=form
+        )
+
+    async def live_poll(self, have: list[str], timeout: float) -> list[str]:
+        """Long-poll: environments someone is watching live right now."""
+        result = await _request(
+            self._session, "GET",
+            f"{self._base}/integrations/ha/live/poll?have={','.join(sorted(have))}",
+            self._token, timeout=aiohttp.ClientTimeout(total=timeout),
+        )
+        return list(result.get("environments", []))
+
+    async def push_live_frame(self, environment_id: str, image: bytes, content_type: str) -> None:
+        """One live frame, relayed to the app. Raises CannalogGoneError once nobody is watching."""
+        form = aiohttp.FormData()
+        form.add_field("environment_id", environment_id)
+        ext = "png" if "png" in content_type else "jpg"
+        form.add_field("image", image, filename=f"frame.{ext}", content_type=content_type or "image/jpeg")
+        await _request(
+            self._session, "POST", f"{self._base}/integrations/ha/live/frame", self._token,
+            data=form, timeout=aiohttp.ClientTimeout(total=10),
         )
 
     async def report_mappings(self, targets: list[dict[str, str]]) -> dict[str, Any]:

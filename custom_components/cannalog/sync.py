@@ -10,6 +10,7 @@ so readings survive Cannalog outages and HA restarts; the API dedupes on
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 import logging
@@ -20,13 +21,17 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperat
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_utc_time_change
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .api import CannalogApi, CannalogAuthError, CannalogConnectionError, CannalogError
+from .api import CannalogApi, CannalogAuthError, CannalogConnectionError, CannalogError, CannalogGoneError
 from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_SNAPSHOT_INTERVAL,
+    LIVE_FRAME_INTERVAL,
+    LIVE_FRAME_SIZE,
+    LIVE_POLL_TIMEOUT,
     OPT_CAMERAS,
     OPT_SNAPSHOT_INTERVAL,
     DOMAIN,
@@ -111,6 +116,10 @@ class CannalogSync:
         self.last_snapshot: datetime | None = None
         self.last_snapshot_error: str | None = None
         self._snapping = False
+        # Live view: environment_id -> frame-loop task, plus the poll loop.
+        self._live: dict[str, asyncio.Task] = {}
+        self._live_poller: asyncio.Task | None = None
+        self.live_viewing: list[str] = []
 
     # ------------------------------------------------------------- lifecycle
     @property
@@ -161,8 +170,15 @@ class CannalogSync:
             else:
                 self._unsubs.append(async_track_utc_time_change(
                     self.hass, self._on_snapshot_tick, minute=list(range(0, 60, every)), second=30))
-            # One frame straight away, so a newly mapped camera shows up in the app.
-            self.hass.async_create_task(self.async_snapshots())
+            # One frame once HA has finished starting (the camera platform may
+            # load after us), so a newly mapped camera shows up in the app.
+            async def _first_snapshot(_hass: HomeAssistant) -> None:
+                await self.async_snapshots()
+
+            self._unsubs.append(async_at_started(self.hass, _first_snapshot))
+            # Live view: wait (outbound long-poll) for the app to ask for it.
+            self._live_poller = self.entry.async_create_background_task(
+                self.hass, self._live_poll_loop(), f"{DOMAIN}_live_poll")
         _LOGGER.debug("Cannalog: %d mappings, %d-min interval, %d queued",
                       len(self.mappings), self.interval, len(self._queue))
         self.hass.async_create_task(self.async_report_mappings())
@@ -170,6 +186,11 @@ class CannalogSync:
             self.hass.async_create_task(self.async_upload())
 
     async def async_stop(self) -> None:
+        if self._live_poller:
+            self._live_poller.cancel()
+        for task in self._live.values():
+            task.cancel()
+        self._live.clear()
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -241,6 +262,73 @@ class CannalogSync:
         finally:
             self._snapping = False
             self._notify()
+
+    # ------------------------------------------------------------ live view
+    async def _live_poll_loop(self) -> None:
+        """Ask Cannalog which environments are being watched; start/stop a frame
+        loop per environment accordingly. Outbound only, like everything else."""
+        cams = {c["environment_id"]: c["entity_id"] for c in self.cameras}
+        backoff = 5
+        watched: list[str] = []
+        while True:
+            try:
+                # `have` = the server's own last answer, so an environment watched
+                # without a camera here doesn't make every poll return at once.
+                watched = await self.api.live_poll(watched, LIVE_POLL_TIMEOUT)
+                backoff = 5
+            except asyncio.CancelledError:
+                raise
+            except CannalogAuthError:
+                _LOGGER.debug("Cannalog live view: token rejected, stopping poll")
+                return
+            except CannalogError as err:
+                # Older server without live view (404) or an outage: retry slowly.
+                _LOGGER.debug("Cannalog live view poll failed: %s", err)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 300)
+                continue
+            wanted = {e for e in watched if e in cams}
+            for env_id in list(self._live):
+                if env_id not in wanted:
+                    self._live.pop(env_id).cancel()
+            for env_id in wanted:
+                task = self._live.get(env_id)
+                if task is None or task.done():
+                    self._live[env_id] = self.entry.async_create_background_task(
+                        self.hass, self._live_frames(env_id, cams[env_id]), f"{DOMAIN}_live_{env_id}")
+            if sorted(wanted) != self.live_viewing:
+                self.live_viewing = sorted(wanted)
+                self._notify()
+
+    async def _live_frames(self, environment_id: str, entity_id: str) -> None:
+        from homeassistant.components.camera import async_get_image
+
+        loop = asyncio.get_running_loop()
+        failures = 0
+        _LOGGER.debug("Cannalog live view started for %s (%s)", environment_id, entity_id)
+        try:
+            while True:
+                began = loop.time()
+                try:
+                    image = await async_get_image(
+                        self.hass, entity_id, timeout=10,
+                        width=LIVE_FRAME_SIZE[0], height=LIVE_FRAME_SIZE[1])
+                    await self.api.push_live_frame(environment_id, image.content, image.content_type)
+                    failures = 0
+                except (CannalogGoneError, CannalogAuthError):
+                    return  # nobody watching any more / token revoked
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:  # noqa: BLE001 - camera or network hiccup
+                    failures += 1
+                    _LOGGER.debug("Cannalog live frame failed (%s): %s", entity_id, err)
+                    if failures >= 10:
+                        return
+                await asyncio.sleep(max(0.2, LIVE_FRAME_INTERVAL - (loop.time() - began)))
+        finally:
+            if self._live.get(environment_id) is asyncio.current_task():
+                self._live.pop(environment_id, None)
+            _LOGGER.debug("Cannalog live view stopped for %s", environment_id)
 
     # ------------------------------------------------------------- mappings
     async def async_report_mappings(self) -> None:
