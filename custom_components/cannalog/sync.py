@@ -39,6 +39,11 @@ from .const import (
     MAX_QUEUE,
     OPT_INTERVAL,
     OPT_MAPPINGS,
+    OPT_PUMPS,
+    MAX_RUNS_QUEUE,
+    MIN_RUN_SECONDS,
+    PUMP_RUNNING_STATES,
+    RUNS_CHUNK,
     SIGNAL_STATUS,
     TEMPERATURE_METRICS,
     UPLOAD_CHUNK,
@@ -46,6 +51,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
+
+
+def _iso(when: datetime) -> str:
+    return dt_util.as_utc(when).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def convert(metric: str, state: State | None) -> float | None:
@@ -121,6 +130,13 @@ class CannalogSync:
         self._live: dict[str, asyncio.Task] = {}
         self._live_poller: asyncio.Task | None = None
         self.live_viewing: list[str] = []
+        # Irrigation: runs waiting to be sent, and pumps currently running
+        # (entity_id -> ISO start). Both persisted with the readings queue, so
+        # a run spanning an HA restart or a Cannalog outage is not lost.
+        self._runs: list[dict[str, Any]] = []
+        self._pump_on: dict[str, str] = {}
+        self._sending_runs = False
+        self.runs_sent = 0
 
     # ------------------------------------------------------------- lifecycle
     @property
@@ -140,6 +156,13 @@ class CannalogSync:
         return int(self.entry.options.get(OPT_SNAPSHOT_INTERVAL, DEFAULT_SNAPSHOT_INTERVAL))
 
     @property
+    def pumps(self) -> list[dict[str, Any]]:
+        return list(self.entry.options.get(OPT_PUMPS, []))
+
+    def _stored(self) -> dict[str, Any]:
+        return {"queue": self._queue, "runs": self._runs, "pump_on": self._pump_on}
+
+    @property
     def queued(self) -> int:
         return len(self._queue)
 
@@ -147,6 +170,11 @@ class CannalogSync:
         stored = await self._store.async_load()
         if stored and isinstance(stored.get("queue"), list):
             self._queue = stored["queue"][-MAX_QUEUE:]
+        if stored and isinstance(stored.get("runs"), list):
+            self._runs = stored["runs"][-MAX_RUNS_QUEUE:]
+        if stored and isinstance(stored.get("pump_on"), dict):
+            self._pump_on = dict(stored["pump_on"])
+        self._start_pumps()
 
         now = dt_util.utcnow()
         for m in self.mappings:
@@ -185,6 +213,8 @@ class CannalogSync:
         self.hass.async_create_task(self.async_report_mappings())
         if self._queue:
             self.hass.async_create_task(self.async_upload())
+        if self._runs:
+            self.hass.async_create_task(self.async_send_runs())
 
     async def async_stop(self) -> None:
         if self._live_poller:
@@ -195,7 +225,7 @@ class CannalogSync:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        await self._store.async_save({"queue": self._queue})
+        await self._store.async_save(self._stored())
 
     # --------------------------------------------------------------- events
     @callback
@@ -223,8 +253,10 @@ class CannalogSync:
                 })
         if len(self._queue) > MAX_QUEUE:
             del self._queue[: len(self._queue) - MAX_QUEUE]
-        self._store.async_delay_save(lambda: {"queue": self._queue}, 30)
+        self._store.async_delay_save(self._stored, 30)
         self.hass.async_create_task(self.async_upload())
+        if self._runs:
+            self.hass.async_create_task(self.async_send_runs())
 
     # ------------------------------------------------------------ snapshots
     @callback
@@ -433,6 +465,90 @@ class CannalogSync:
                 self._live.pop(environment_id, None)
             _LOGGER.debug("Cannalog live view stopped for %s", environment_id)
 
+    # ----------------------------------------------------------- irrigation
+    def _start_pumps(self) -> None:
+        """Track mapped pumps. A pump that changed while HA was down is
+        reconciled from its current state: still running keeps (or gets) a
+        start; stopped closes a stored start at the time it changed."""
+        entities = {p["entity_id"] for p in self.pumps}
+        for entity_id in list(self._pump_on):
+            if entity_id not in entities:
+                self._pump_on.pop(entity_id)
+        for entity_id in entities:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                continue  # no information yet; the first real state decides
+            if state.state in PUMP_RUNNING_STATES:
+                self._pump_on.setdefault(entity_id, _iso(state.last_changed))
+            elif entity_id in self._pump_on:
+                self._close_run(entity_id, state.last_changed)
+        if entities:
+            self._unsubs.append(async_track_state_change_event(self.hass, list(entities), self._on_pump))
+
+    @callback
+    def _on_pump(self, event: Event[EventStateChangedData]) -> None:
+        entity_id = event.data["entity_id"]
+        new = event.data["new_state"]
+        if new is None or new.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return  # a dropped relay is not a stopped pump; wait for a real state
+        running = new.state in PUMP_RUNNING_STATES
+        if running and entity_id not in self._pump_on:
+            self._pump_on[entity_id] = _iso(new.last_changed)
+            self._store.async_delay_save(self._stored, 5)
+        elif not running and entity_id in self._pump_on:
+            self._close_run(entity_id, new.last_changed)
+            self.hass.async_create_task(self.async_send_runs())
+
+    def _close_run(self, entity_id: str, ended: datetime) -> None:
+        started = dt_util.parse_datetime(self._pump_on.pop(entity_id))
+        self._store.async_delay_save(self._stored, 5)
+        if started is None:
+            return
+        seconds = (ended - started).total_seconds()
+        if seconds < MIN_RUN_SECONDS:
+            return
+        for pump in self.pumps:
+            if pump["entity_id"] != entity_id:
+                continue
+            run: dict[str, Any] = {
+                "reservoir_id": pump["reservoir_id"],
+                "started_at": _iso(started),
+                "duration_seconds": round(seconds),
+                "time_zone": self.hass.config.time_zone,
+            }
+            if pump.get("ml_per_minute"):
+                run["water_amount_ml"] = round(float(pump["ml_per_minute"]) * seconds / 60, 1)
+            self._runs.append(run)
+            _LOGGER.debug("Cannalog: %s ran %.0fs for reservoir %s", entity_id, seconds, pump["reservoir_id"])
+        if len(self._runs) > MAX_RUNS_QUEUE:
+            del self._runs[: len(self._runs) - MAX_RUNS_QUEUE]
+
+    async def async_send_runs(self) -> None:
+        if self._sending_runs or not self._runs:
+            return
+        self._sending_runs = True
+        try:
+            while self._runs:
+                chunk = self._runs[:RUNS_CHUNK]
+                result = await self.api.push_irrigation_runs(chunk)
+                del self._runs[: len(chunk)]
+                self.runs_sent += int(result.get("inserted", 0))
+                if result.get("rejected"):
+                    _LOGGER.warning("Cannalog rejected %s pump runs (unknown reservoir or invalid run)",
+                                    result["rejected"])
+        except CannalogAuthError:
+            pass  # the readings upload path starts reauth
+        except CannalogConnectionError as err:
+            _LOGGER.debug("Cannalog unreachable, %d pump runs queued: %s", len(self._runs), err)
+        except CannalogError as err:
+            _LOGGER.error("Cannalog refused pump runs, dropping %d: %s",
+                          min(len(self._runs), RUNS_CHUNK), err)
+            del self._runs[:RUNS_CHUNK]
+        finally:
+            self._sending_runs = False
+            self._store.async_delay_save(self._stored, 5)
+            self._notify()
+
     # ------------------------------------------------------------- mappings
     async def async_report_mappings(self) -> None:
         targets = sorted(
@@ -440,7 +556,8 @@ class CannalogSync:
         )
         try:
             await self.api.report_mappings(
-                [{"target_type": t, "target_id": i} for t, i in targets]
+                [{"target_type": t, "target_id": i} for t, i in targets],
+                [{"reservoir_id": p["reservoir_id"], "entity_id": p["entity_id"]} for p in self.pumps],
             )
             self._mappings_reported = True
         except CannalogAuthError:
@@ -487,7 +604,7 @@ class CannalogSync:
             del self._queue[:UPLOAD_CHUNK]
         finally:
             self._uploading = False
-            self._store.async_delay_save(lambda: {"queue": self._queue}, 5)
+            self._store.async_delay_save(self._stored, 5)
             self._notify()
 
     def _notify(self) -> None:

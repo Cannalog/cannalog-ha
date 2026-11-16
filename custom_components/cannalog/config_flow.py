@@ -15,6 +15,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -40,7 +43,11 @@ from .const import (
     OPT_CAMERAS,
     OPT_INTERVAL,
     OPT_MAPPINGS,
+    OPT_PUMPS,
     OPT_SNAPSHOT_INTERVAL,
+    PUMP_DOMAINS,
+    PUMP_FIELD,
+    PUMP_ML_FIELD,
     SNAPSHOT_INTERVAL_CHOICES,
     VERSION,
 )
@@ -97,7 +104,8 @@ class CannalogConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_USER_NAME: result.get("user_name"),
                     },
                     options={OPT_MAPPINGS: [], OPT_INTERVAL: DEFAULT_INTERVAL,
-                             OPT_CAMERAS: [], OPT_SNAPSHOT_INTERVAL: DEFAULT_SNAPSHOT_INTERVAL},
+                             OPT_CAMERAS: [], OPT_SNAPSHOT_INTERVAL: DEFAULT_SNAPSHOT_INTERVAL,
+                             OPT_PUMPS: []},
                 )
 
         return self.async_show_form(
@@ -213,6 +221,7 @@ class CannalogOptionsFlow(OptionsFlow):
 
         mapped = {f"{m['target_type']}:{m['target_id']}" for m in self._mappings()}
         mapped |= {f"environment:{c['environment_id']}" for c in self.config_entry.options.get(OPT_CAMERAS, [])}
+        mapped |= {f"reservoir:{p['reservoir_id']}" for p in self.config_entry.options.get(OPT_PUMPS, [])}
         options: list[SelectOptionDict] = []
         for ttype, items, icon in (("environment", data.get("environments", []), "🌱"),
                                    ("reservoir", data.get("reservoirs", []), "💧")):
@@ -260,6 +269,15 @@ class CannalogOptionsFlow(OptionsFlow):
                     cams.append({"environment_id": target["id"], "environment_name": target["name"],
                                  "entity_id": user_input[CAMERA_FIELD]})
                 changes[OPT_CAMERAS] = cams
+            if target["type"] == "reservoir":
+                pumps = [p for p in self.config_entry.options.get(OPT_PUMPS, [])
+                         if p["reservoir_id"] != target["id"]]
+                if user_input.get(PUMP_FIELD):
+                    rate = user_input.get(PUMP_ML_FIELD)
+                    pumps.append({"reservoir_id": target["id"], "reservoir_name": target["name"],
+                                  "entity_id": user_input[PUMP_FIELD],
+                                  "ml_per_minute": float(rate) if rate else None})
+                changes[OPT_PUMPS] = pumps
             return self._save(**changes)
 
         schema: dict = {}
@@ -271,6 +289,15 @@ class CannalogOptionsFlow(OptionsFlow):
                            if c["environment_id"] == target["id"]), None)
             schema[vol.Optional(CAMERA_FIELD, description={"suggested_value": camera})] = \
                 EntitySelector(EntitySelectorConfig(domain="camera"))
+        if target["type"] == "reservoir":
+            pump = next((p for p in self.config_entry.options.get(OPT_PUMPS, [])
+                         if p["reservoir_id"] == target["id"]), None) or {}
+            schema[vol.Optional(PUMP_FIELD, description={"suggested_value": pump.get("entity_id")})] = \
+                EntitySelector(EntitySelectorConfig(domain=PUMP_DOMAINS))
+            schema[vol.Optional(PUMP_ML_FIELD, description={"suggested_value": pump.get("ml_per_minute")})] = \
+                NumberSelector(NumberSelectorConfig(min=0, max=100000, step="any",
+                                                    unit_of_measurement="ml/min",
+                                                    mode=NumberSelectorMode.BOX))
         return self.async_show_form(
             step_id=f"sensors_{target['type']}",
             data_schema=vol.Schema(schema),

@@ -45,6 +45,13 @@ Any Home Assistant `camera` entity can be mapped to an environment. A still fram
 
 Frames and video are relayed to the app, never stored. A camera that only has a stream (no still image) still works for snapshots: a frame is grabbed from its stream.
 
+### Feed cycles (pump / valve)
+
+On a reservoir, pick the `switch`, `valve`, `input_boolean` or `binary_sensor` that runs its pump. Every time it turns on and back off, Cannalog logs a Feed for every plant on that reservoir at the real start time, with the run's duration, and carries the nutrients from the reservoir's latest log. Your Home Assistant automations stay the schedule: Cannalog stops asking "did it run?" for that reservoir and shows the runs in its schedule history.
+
+- **Water per plant per minute** is optional (drippers). Leave it empty for ebb & flow, DWC and other recirculating systems.
+- Runs shorter than 5 seconds are ignored. Runs are queued while Cannalog is unreachable and survive Home Assistant restarts; retries never log a run twice.
+
 ## Diagnostics
 
 The integration adds five diagnostic sensors: **Last upload**, **Queued readings**, **Readings sent**, **Mapped sensors** and **Last snapshot**.

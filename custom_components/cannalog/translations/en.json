@@ -43,13 +43,13 @@
       "init": {
         "title": "Cannalog",
         "menu_options": {
-          "map_target": "Map sensors / camera to an environment or reservoir",
+          "map_target": "Map sensors / camera / pump to an environment or reservoir",
           "settings": "Upload settings"
         }
       },
       "map_target": {
         "title": "Choose what to map",
-        "description": "Pick a Cannalog environment or reservoir. ✓ = already has sensors mapped.",
+        "description": "Pick a Cannalog environment or reservoir. ✓ = already has sensors, a camera or a pump mapped.",
         "data": {
           "target": "Environment / reservoir"
         }
@@ -70,14 +70,16 @@
       },
       "sensors_reservoir": {
         "title": "Sensors for {target}",
-        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it.",
+        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it.\n\n**Pump / valve**: the switch that feeds this reservoir's plants. Every time it turns on and back off, Cannalog logs a feed for every plant on this reservoir at the real time, and stops asking \"did it run?\" for its schedule. **Water per plant per minute** is optional (drippers); leave it empty for ebb & flow or DWC.",
         "data": {
           "ph": "pH",
           "ec": "EC (µS/cm or mS/cm, converted automatically)",
           "water_temperature": "Water temperature",
           "tds": "TDS (ppm)",
           "orp": "ORP (mV)",
-          "level": "Level"
+          "level": "Level",
+          "pump": "Pump / valve (feeds this reservoir)",
+          "pump_ml_per_minute": "Water per plant per minute (optional)"
         }
       },
       "settings": {

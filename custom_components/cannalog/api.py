@@ -142,13 +142,26 @@ class CannalogApi:
             data=form, timeout=aiohttp.ClientTimeout(total=10),
         )
 
-    async def report_mappings(self, targets: list[dict[str, str]]) -> dict[str, Any]:
+    async def report_mappings(
+        self, targets: list[dict[str, str]], pumps: list[dict[str, str]]
+    ) -> dict[str, Any]:
         """Tell Cannalog which environments / reservoirs this HA is configured
-        to send readings for, so the app shows LIVE only for those."""
+        to send readings for (the app shows LIVE only for those), and which
+        reservoirs are fed by a pump here (no schedule prompts for those)."""
         return await _request(
             self._session,
             "PUT",
             f"{self._base}/integrations/ha/mappings",
             self._token,
-            json={"targets": targets},
+            json={"targets": targets, "pumps": pumps},
+        )
+
+    async def push_irrigation_runs(self, runs: list[dict[str, Any]]) -> dict[str, Any]:
+        """Pump runs; Cannalog logs each as a feed. Retries are safe (deduped)."""
+        return await _request(
+            self._session,
+            "POST",
+            f"{self._base}/integrations/ha/irrigation_runs",
+            self._token,
+            json={"runs": runs},
         )

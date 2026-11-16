@@ -1,7 +1,7 @@
 """Constants for the Cannalog integration."""
 
 DOMAIN = "cannalog"
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 DEFAULT_API_URL = "https://api.cannalog.co.za"
 
@@ -23,6 +23,17 @@ OPT_SNAPSHOT_INTERVAL = "snapshot_interval"  # minutes
 DEFAULT_SNAPSHOT_INTERVAL = 30
 SNAPSHOT_INTERVAL_CHOICES = [5, 10, 15, 30, 60]
 CAMERA_FIELD = "camera"
+
+# Irrigation: a pump / valve entity per reservoir. Every on -> off is sent to
+# Cannalog as a feed cycle (logged for every plant the reservoir feeds).
+OPT_PUMPS = "pumps"  # [{reservoir_id, reservoir_name, entity_id, ml_per_minute}]
+PUMP_FIELD = "pump"
+PUMP_ML_FIELD = "pump_ml_per_minute"
+PUMP_DOMAINS = ["switch", "valve", "input_boolean", "binary_sensor"]
+PUMP_RUNNING_STATES = {"on", "open"}
+MIN_RUN_SECONDS = 5  # shorter = a relay blip, not a feed
+MAX_RUNS_QUEUE = 2000
+RUNS_CHUNK = 100
 
 # Live view (on demand, only while someone has the viewer open in the app)
 LIVE_FRAME_INTERVAL = 1.5  # seconds between frames
