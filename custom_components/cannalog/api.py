@@ -28,12 +28,13 @@ async def _request(
     url: str,
     token: str | None = None,
     json: Any = None,
+    data: Any = None,
 ) -> Any:
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        async with session.request(method, url, json=json, headers=headers, timeout=TIMEOUT) as resp:
+        async with session.request(method, url, json=json, data=data, headers=headers, timeout=TIMEOUT) as resp:
             if resp.status in (401, 403):
                 raise CannalogAuthError(await _message(resp))
             if resp.status >= 400:
@@ -93,6 +94,19 @@ class CannalogApi:
             f"{self._base}/integrations/ha/readings",
             self._token,
             json={"readings": readings},
+        )
+
+    async def push_snapshot(
+        self, environment_id: str, image: bytes, content_type: str, captured_at: str
+    ) -> dict[str, Any]:
+        """Upload one camera frame; Cannalog keeps it as the environment's latest."""
+        form = aiohttp.FormData()
+        form.add_field("environment_id", environment_id)
+        form.add_field("captured_at", captured_at)
+        ext = "png" if "png" in content_type else "jpg"
+        form.add_field("image", image, filename=f"snapshot.{ext}", content_type=content_type or "image/jpeg")
+        return await _request(
+            self._session, "POST", f"{self._base}/integrations/ha/snapshots", self._token, data=form
         )
 
     async def report_mappings(self, targets: list[dict[str, str]]) -> dict[str, Any]:

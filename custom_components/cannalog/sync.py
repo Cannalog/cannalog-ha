@@ -26,6 +26,9 @@ from homeassistant.util import dt as dt_util
 from .api import CannalogApi, CannalogAuthError, CannalogConnectionError, CannalogError
 from .const import (
     DEFAULT_INTERVAL,
+    DEFAULT_SNAPSHOT_INTERVAL,
+    OPT_CAMERAS,
+    OPT_SNAPSHOT_INTERVAL,
     DOMAIN,
     MAX_QUEUE,
     OPT_INTERVAL,
@@ -105,6 +108,9 @@ class CannalogSync:
         # Sent on start (which includes every reload after Configure is
         # saved) and retried before uploads until it succeeds.
         self._mappings_reported = False
+        self.last_snapshot: datetime | None = None
+        self.last_snapshot_error: str | None = None
+        self._snapping = False
 
     # ------------------------------------------------------------- lifecycle
     @property
@@ -114,6 +120,14 @@ class CannalogSync:
     @property
     def interval(self) -> int:
         return int(self.entry.options.get(OPT_INTERVAL, DEFAULT_INTERVAL))
+
+    @property
+    def cameras(self) -> list[dict[str, str]]:
+        return list(self.entry.options.get(OPT_CAMERAS, []))
+
+    @property
+    def snapshot_interval(self) -> int:
+        return int(self.entry.options.get(OPT_SNAPSHOT_INTERVAL, DEFAULT_SNAPSHOT_INTERVAL))
 
     @property
     def queued(self) -> int:
@@ -139,6 +153,16 @@ class CannalogSync:
         self._unsubs.append(
             async_track_utc_time_change(self.hass, self._on_tick, minute=minutes, second=0)
         )
+        if self.cameras:
+            every = self.snapshot_interval
+            if every >= 60:
+                self._unsubs.append(async_track_utc_time_change(
+                    self.hass, self._on_snapshot_tick, hour=list(range(0, 24, every // 60)), minute=0, second=30))
+            else:
+                self._unsubs.append(async_track_utc_time_change(
+                    self.hass, self._on_snapshot_tick, minute=list(range(0, 60, every)), second=30))
+            # One frame straight away, so a newly mapped camera shows up in the app.
+            self.hass.async_create_task(self.async_snapshots())
         _LOGGER.debug("Cannalog: %d mappings, %d-min interval, %d queued",
                       len(self.mappings), self.interval, len(self._queue))
         self.hass.async_create_task(self.async_report_mappings())
@@ -179,6 +203,44 @@ class CannalogSync:
             del self._queue[: len(self._queue) - MAX_QUEUE]
         self._store.async_delay_save(lambda: {"queue": self._queue}, 30)
         self.hass.async_create_task(self.async_upload())
+
+    # ------------------------------------------------------------ snapshots
+    @callback
+    def _on_snapshot_tick(self, now: datetime) -> None:
+        self.hass.async_create_task(self.async_snapshots())
+
+    async def async_snapshots(self) -> None:
+        """Grab one frame per mapped camera and upload it. Not queued: Cannalog
+        keeps only the latest frame, so a missed one is simply replaced by the
+        next tick's."""
+        if self._snapping or not self.cameras:
+            return
+        from homeassistant.components.camera import async_get_image  # camera may load after us
+
+        self._snapping = True
+        try:
+            for cam in self.cameras:
+                try:
+                    image = await async_get_image(self.hass, cam["entity_id"], timeout=20)
+                    stamp = dt_util.utcnow().replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                    result = await self.api.push_snapshot(
+                        cam["environment_id"], image.content, image.content_type, stamp)
+                    if result.get("stored") is False:
+                        _LOGGER.debug("Cannalog skipped %s frame: %s", cam["entity_id"], result.get("reason"))
+                    self.last_snapshot = dt_util.utcnow()
+                    self.last_snapshot_error = None
+                except CannalogAuthError as err:
+                    self.last_snapshot_error = f"auth: {err}"
+                    return  # the readings upload path starts reauth
+                except CannalogError as err:
+                    self.last_snapshot_error = str(err)
+                    _LOGGER.warning("Cannalog snapshot upload failed for %s: %s", cam["entity_id"], err)
+                except Exception as err:  # noqa: BLE001 - camera unavailable / HomeAssistantError
+                    self.last_snapshot_error = f"{cam['entity_id']}: {err}"
+                    _LOGGER.warning("Could not get a frame from %s: %s", cam["entity_id"], err)
+        finally:
+            self._snapping = False
+            self._notify()
 
     # ------------------------------------------------------------- mappings
     async def async_report_mappings(self) -> None:

@@ -1,7 +1,7 @@
 """Constants for the Cannalog integration."""
 
 DOMAIN = "cannalog"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 DEFAULT_API_URL = "https://api.cannalog.co.za"
 
@@ -16,6 +16,13 @@ OPT_MAPPINGS = "mappings"
 OPT_INTERVAL = "interval"  # minutes
 DEFAULT_INTERVAL = 5
 INTERVAL_CHOICES = [1, 2, 5, 10, 15, 30]
+
+# Camera snapshots: latest frame per environment (Cannalog keeps only the newest).
+OPT_CAMERAS = "cameras"  # [{environment_id, environment_name, entity_id}]
+OPT_SNAPSHOT_INTERVAL = "snapshot_interval"  # minutes
+DEFAULT_SNAPSHOT_INTERVAL = 30
+SNAPSHOT_INTERVAL_CHOICES = [5, 10, 15, 30, 60]
+CAMERA_FIELD = "camera"
 
 # Readings per Cannalog target type. Must match the API's METRICS table.
 # value: (label, device_class used to pre-filter the entity picker or None)

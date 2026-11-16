@@ -22,8 +22,8 @@ Manual install: copy `custom_components/cannalog` into your Home Assistant `conf
 1. In the Cannalog app open **Settings → Integrations → Home Assistant** and tap **Get pairing code**, then **Copy**.
 2. In Home Assistant add the **Cannalog** integration (button above) and paste the code. Codes are valid for 15 minutes.
 3. Open the integration's **Configure** menu:
-   - **Map sensors to an environment or reservoir**: pick a tent or reservoir, then choose the sensor for each reading. Repeat for every tent.
-   - **Upload settings**: averaging and upload interval (default 5 minutes).
+   - **Map sensors / camera to an environment or reservoir**: pick a tent or reservoir, then choose the sensor for each reading. For an environment you can also pick a camera. Repeat for every tent.
+   - **Upload settings**: readings interval (default 5 minutes) and camera snapshot interval (default 30 minutes).
 
 ## What can be sent
 
@@ -34,8 +34,12 @@ Manual install: copy `custom_components/cannalog` into your Home Assistant `conf
 
 Units are converted automatically (°F → °C, µS/cm → mS/cm).
 
+### Camera snapshots
+
+Any Home Assistant `camera` entity can be mapped to an environment. A still frame is sent at the snapshot interval and shown on that environment in the Cannalog app. Cannalog keeps only the latest frame, not a history. Near-black frames (lights off) are ignored, so the app keeps showing the last lit view overnight.
+
 ## Diagnostics
 
-The integration adds four diagnostic sensors: **Last upload**, **Queued readings**, **Readings sent** and **Mapped sensors**.
+The integration adds five diagnostic sensors: **Last upload**, **Queued readings**, **Readings sent**, **Mapped sensors** and **Last snapshot**.
 
 To disconnect, remove the integration in Home Assistant or tap **Disconnect** in the Cannalog app. Readings already sent are kept.

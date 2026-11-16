@@ -43,7 +43,7 @@
       "init": {
         "title": "Cannalog",
         "menu_options": {
-          "map_target": "Map sensors to an environment or reservoir",
+          "map_target": "Map sensors / camera to an environment or reservoir",
           "settings": "Upload settings"
         }
       },
@@ -56,7 +56,7 @@
       },
       "sensors_environment": {
         "title": "Sensors for {target}",
-        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it.",
+        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it. Pick a camera to show its latest snapshot on this environment in the app.",
         "data": {
           "temperature": "Air temperature",
           "humidity": "Relative humidity",
@@ -64,7 +64,8 @@
           "leaf_temperature": "Leaf temperature",
           "dew_point": "Dew point",
           "co2": "CO2 (ppm)",
-          "ppfd": "PPFD (µmol/m²/s)"
+          "ppfd": "PPFD (µmol/m²/s)",
+          "camera": "Camera (snapshot)"
         }
       },
       "sensors_reservoir": {
@@ -81,9 +82,10 @@
       },
       "settings": {
         "title": "Upload settings",
-        "description": "Readings are averaged over each interval and uploaded at the end of it.",
+        "description": "Readings are averaged over each interval and uploaded at the end of it. Camera snapshots are sent at their own interval; Cannalog keeps only the latest one, and frames taken with the lights off are ignored.",
         "data": {
-          "interval": "Interval"
+          "interval": "Readings interval",
+          "snapshot_interval": "Camera snapshot interval"
         }
       }
     },
@@ -106,6 +108,9 @@
       },
       "mapped": {
         "name": "Mapped sensors"
+      },
+      "last_snapshot": {
+        "name": "Last snapshot"
       }
     }
   }

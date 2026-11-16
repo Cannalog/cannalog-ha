@@ -17,6 +17,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_entities: AddE
     sync: CannalogSync = entry.runtime_data
     async_add_entities([
         LastUploadSensor(sync), QueuedSensor(sync), MappedSensor(sync), SentSensor(sync),
+        LastSnapshotSensor(sync),
     ])
 
 
@@ -101,3 +102,22 @@ class MappedSensor(_Base):
             f"{m.get('target_name', m['target_id'])} / {m['metric']} <- {m['entity_id']}"
             for m in self.sync.mappings
         ]}
+
+
+class LastSnapshotSensor(_Base):
+    key = "last_snapshot"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:camera-outline"
+
+    @property
+    def native_value(self):
+        return self.sync.last_snapshot
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "last_error": self.sync.last_snapshot_error,
+            "interval_minutes": self.sync.snapshot_interval,
+            "cameras": [f"{c.get('environment_name', c['environment_id'])} <- {c['entity_id']}"
+                        for c in self.sync.cameras],
+        }

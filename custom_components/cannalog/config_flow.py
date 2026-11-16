@@ -33,10 +33,15 @@ from .const import (
     DEFAULT_API_URL,
     DEFAULT_INTERVAL,
     DOMAIN,
+    CAMERA_FIELD,
+    DEFAULT_SNAPSHOT_INTERVAL,
     INTERVAL_CHOICES,
     METRICS,
+    OPT_CAMERAS,
     OPT_INTERVAL,
     OPT_MAPPINGS,
+    OPT_SNAPSHOT_INTERVAL,
+    SNAPSHOT_INTERVAL_CHOICES,
     VERSION,
 )
 
@@ -91,7 +96,8 @@ class CannalogConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_USER_ID: result["user_id"],
                         CONF_USER_NAME: result.get("user_name"),
                     },
-                    options={OPT_MAPPINGS: [], OPT_INTERVAL: DEFAULT_INTERVAL},
+                    options={OPT_MAPPINGS: [], OPT_INTERVAL: DEFAULT_INTERVAL,
+                             OPT_CAMERAS: [], OPT_SNAPSHOT_INTERVAL: DEFAULT_SNAPSHOT_INTERVAL},
                 )
 
         return self.async_show_form(
@@ -206,6 +212,7 @@ class CannalogOptionsFlow(OptionsFlow):
             return self.async_abort(reason="cannot_connect")
 
         mapped = {f"{m['target_type']}:{m['target_id']}" for m in self._mappings()}
+        mapped |= {f"environment:{c['environment_id']}" for c in self.config_entry.options.get(OPT_CAMERAS, [])}
         options: list[SelectOptionDict] = []
         for ttype, items, icon in (("environment", data.get("environments", []), "🌱"),
                                    ("reservoir", data.get("reservoirs", []), "💧")):
@@ -245,12 +252,25 @@ class CannalogOptionsFlow(OptionsFlow):
                         "metric": metric,
                         "entity_id": entity_id,
                     })
-            return self._save(**{OPT_MAPPINGS: keep})
+            changes: dict[str, Any] = {OPT_MAPPINGS: keep}
+            if target["type"] == "environment":
+                cams = [c for c in self.config_entry.options.get(OPT_CAMERAS, [])
+                        if c["environment_id"] != target["id"]]
+                if user_input.get(CAMERA_FIELD):
+                    cams.append({"environment_id": target["id"], "environment_name": target["name"],
+                                 "entity_id": user_input[CAMERA_FIELD]})
+                changes[OPT_CAMERAS] = cams
+            return self._save(**changes)
 
         schema: dict = {}
         for metric in metrics:
             schema[vol.Optional(metric, description={"suggested_value": current.get(metric)})] = \
                 EntitySelector(EntitySelectorConfig(domain="sensor"))
+        if target["type"] == "environment":
+            camera = next((c["entity_id"] for c in self.config_entry.options.get(OPT_CAMERAS, [])
+                           if c["environment_id"] == target["id"]), None)
+            schema[vol.Optional(CAMERA_FIELD, description={"suggested_value": camera})] = \
+                EntitySelector(EntitySelectorConfig(domain="camera"))
         return self.async_show_form(
             step_id=f"sensors_{target['type']}",
             data_schema=vol.Schema(schema),
@@ -268,13 +288,19 @@ class CannalogOptionsFlow(OptionsFlow):
 
     async def async_step_settings(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            return self._save(**{OPT_INTERVAL: int(user_input[OPT_INTERVAL])})
+            return self._save(**{OPT_INTERVAL: int(user_input[OPT_INTERVAL]),
+                                  OPT_SNAPSHOT_INTERVAL: int(user_input[OPT_SNAPSHOT_INTERVAL])})
         return self.async_show_form(
             step_id="settings",
             data_schema=vol.Schema({
                 vol.Required(OPT_INTERVAL, default=str(self.config_entry.options.get(OPT_INTERVAL, DEFAULT_INTERVAL))):
                     SelectSelector(SelectSelectorConfig(
                         options=[SelectOptionDict(value=str(i), label=f"{i} min") for i in INTERVAL_CHOICES],
+                        mode=SelectSelectorMode.DROPDOWN)),
+                vol.Required(OPT_SNAPSHOT_INTERVAL, default=str(self.config_entry.options.get(
+                    OPT_SNAPSHOT_INTERVAL, DEFAULT_SNAPSHOT_INTERVAL))):
+                    SelectSelector(SelectSelectorConfig(
+                        options=[SelectOptionDict(value=str(i), label=f"{i} min") for i in SNAPSHOT_INTERVAL_CHOICES],
                         mode=SelectSelectorMode.DROPDOWN)),
             }),
         )
