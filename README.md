@@ -1,10 +1,10 @@
 # Cannalog for Home Assistant
 
-Send your grow room's sensor data from Home Assistant to [Cannalog](https://cannalog.co.za), the grow journal. Temperature, humidity, VPD, pH, EC and more are logged to your Cannalog environments and reservoirs every few minutes and charted next to your own journal entries.
+Send your grow room's sensor data from Home Assistant to [Cannalog](https://cannalog.co.za), the grow journal. Temperature, humidity, VPD, pH, EC and more are logged to your Cannalog environments, zones and reservoirs every few minutes and charted next to your own journal entries.
 
 - **Push only.** Home Assistant sends data to Cannalog. Cannalog never connects into your home network and never stores a Home Assistant token.
 - **Nothing lost.** Readings are averaged per interval and queued on disk, so an internet or Cannalog outage just delays them.
-- **Any sensor.** Map any Home Assistant sensor to any Cannalog environment (tent, room) or reservoir. One Home Assistant can feed several tents, and one sensor can feed more than one.
+- **Any sensor.** Map any Home Assistant sensor to any Cannalog environment (tent, room), zone (a shelf or area inside one) or reservoir. One Home Assistant can feed several tents, and one sensor can feed more than one.
 
 ## Install
 
@@ -22,7 +22,7 @@ Manual install: copy `custom_components/cannalog` into your Home Assistant `conf
 1. In the Cannalog app open **Settings → Integrations → Home Assistant** and tap **Get pairing code**, then **Copy**.
 2. In Home Assistant add the **Cannalog** integration (button above) and paste the code. Codes are valid for 15 minutes.
 3. Open the integration's **Configure** menu:
-   - **Map sensors / camera to an environment or reservoir**: pick a tent or reservoir, then choose the sensor for each reading. For an environment you can also pick a camera. Repeat for every tent.
+   - **Map sensors / camera to an environment, zone or reservoir**: pick a tent, zone or reservoir, then choose the sensor for each reading. For an environment you can also pick a camera. Repeat for every tent. Zones are listed as "Tent › Zone"; a zone's readings show on that zone in the app, separate from the tent's own.
    - **Upload settings**: readings interval (default 5 minutes) and camera snapshot interval (default 30 minutes).
 
 ## What can be sent

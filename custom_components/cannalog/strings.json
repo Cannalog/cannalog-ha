@@ -43,15 +43,15 @@
       "init": {
         "title": "Cannalog",
         "menu_options": {
-          "map_target": "Map sensors / camera / pump to an environment or reservoir",
+          "map_target": "Map sensors / camera / pump to an environment, zone or reservoir",
           "settings": "Upload settings"
         }
       },
       "map_target": {
         "title": "Choose what to map",
-        "description": "Pick a Cannalog environment or reservoir. ✓ = already has sensors, a camera or a pump mapped.",
+        "description": "Pick a Cannalog environment, zone or reservoir. ✓ = already has sensors, a camera or a pump mapped.",
         "data": {
-          "target": "Environment / reservoir"
+          "target": "Environment / zone / reservoir"
         }
       },
       "sensors_environment": {
@@ -66,6 +66,19 @@
           "co2": "CO2 (ppm)",
           "ppfd": "PPFD (µmol/m²/s)",
           "camera": "Camera (snapshot)"
+        }
+      },
+      "sensors_zone": {
+        "title": "Sensors for {target}",
+        "description": "Choose the Home Assistant sensor for each reading in this zone. Leave a field empty to not send it. Zone readings show on the zone in the app, separate from the environment's own.",
+        "data": {
+          "temperature": "Air temperature",
+          "humidity": "Relative humidity",
+          "vpd": "VPD (kPa)",
+          "leaf_temperature": "Leaf temperature",
+          "dew_point": "Dew point",
+          "co2": "CO2 (ppm)",
+          "ppfd": "PPFD (µmol/m²/s)"
         }
       },
       "sensors_reservoir": {
@@ -95,7 +108,7 @@
     "abort": {
       "cannot_connect": "Could not reach the Cannalog server.",
       "auth_failed": "Cannalog rejected the token - re-connect the integration.",
-      "no_targets": "Your Cannalog account has no environments or reservoirs yet - create one in the app first."
+      "no_targets": "Your Cannalog account has no environments, zones or reservoirs yet - create one in the app first."
     }
   },
   "entity": {

@@ -192,7 +192,7 @@ class CannalogConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class CannalogOptionsFlow(OptionsFlow):
-    """Map HA sensors to Cannalog environments / reservoirs."""
+    """Map HA sensors to Cannalog environments / zones / reservoirs."""
 
     def __init__(self) -> None:
         self._targets: dict[str, dict[str, str]] = {}
@@ -225,7 +225,9 @@ class CannalogOptionsFlow(OptionsFlow):
         mapped |= {f"environment:{c['environment_id']}" for c in self.config_entry.options.get(OPT_CAMERAS, [])}
         mapped |= {f"reservoir:{p['reservoir_id']}" for p in self.config_entry.options.get(OPT_PUMPS, [])}
         options: list[SelectOptionDict] = []
+        # Zones are listed by servers from Nov 2026 on ("Environment › Zone").
         for ttype, items, icon in (("environment", data.get("environments", []), "🌱"),
+                                   ("zone", data.get("zones", []), "🔲"),
                                    ("reservoir", data.get("reservoirs", []), "💧")):
             for t in items:
                 key = f"{ttype}:{t['id']}"
@@ -308,8 +310,11 @@ class CannalogOptionsFlow(OptionsFlow):
         )
 
     # The form's step_id differs per target type (so each gets its own labels);
-    # both submit back into async_step_sensors.
+    # all submit back into async_step_sensors.
     async def async_step_sensors_environment(self, user_input=None) -> ConfigFlowResult:
+        return await self.async_step_sensors(user_input)
+
+    async def async_step_sensors_zone(self, user_input=None) -> ConfigFlowResult:
         return await self.async_step_sensors(user_input)
 
     async def async_step_sensors_reservoir(self, user_input=None) -> ConfigFlowResult:

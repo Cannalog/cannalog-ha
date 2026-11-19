@@ -1,7 +1,7 @@
 """Constants for the Cannalog integration."""
 
 DOMAIN = "cannalog"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 DEFAULT_API_URL = "https://api.cannalog.co.za"
 
@@ -56,6 +56,7 @@ METRICS = {
         "co2": ("CO2", "carbon_dioxide"),
         "ppfd": ("PPFD", None),
     },
+    # "zone" is filled in below: a Cannalog zone is a mini environment
     "reservoir": {
         "ph": ("pH", "ph"),
         "ec": ("EC", None),
@@ -65,6 +66,10 @@ METRICS = {
         "level": ("Level", None),
     },
 }
+
+# A zone (a shelf / area inside an environment, Cannalog >= Nov 2026) takes
+# the same readings as an environment.
+METRICS["zone"] = METRICS["environment"]
 
 TEMPERATURE_METRICS = {"temperature", "leaf_temperature", "dew_point", "water_temperature"}
 
