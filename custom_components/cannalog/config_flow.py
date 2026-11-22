@@ -204,6 +204,29 @@ class CannalogOptionsFlow(OptionsFlow):
     def _save(self, **changes: Any) -> ConfigFlowResult:
         return self.async_create_entry(data={**self.config_entry.options, **changes})
 
+    def _linked_names(self) -> dict[str, str]:
+        """Every target something is linked to, "type:id" -> name."""
+        names: dict[str, str] = {}
+        for m in self._mappings():
+            names[f"{m['target_type']}:{m['target_id']}"] = m.get("target_name") or m["target_id"]
+        for c in self.config_entry.options.get(OPT_CAMERAS, []):
+            names[f"environment:{c['environment_id']}"] = c.get("environment_name") or c["environment_id"]
+        for p in self.config_entry.options.get(OPT_PUMPS, []):
+            names[f"reservoir:{p['reservoir_id']}"] = p.get("reservoir_name") or p["reservoir_id"]
+        return names
+
+    def _unlink(self, target: dict[str, str]) -> ConfigFlowResult:
+        """Drop every sensor, camera and pump linked to a target."""
+        ttype, tid = target["type"], target["id"]
+        return self._save(**{
+            OPT_MAPPINGS: [m for m in self._mappings()
+                           if not (m["target_type"] == ttype and m["target_id"] == tid)],
+            OPT_CAMERAS: [c for c in self.config_entry.options.get(OPT_CAMERAS, [])
+                          if not (ttype == "environment" and c["environment_id"] == tid)],
+            OPT_PUMPS: [p for p in self.config_entry.options.get(OPT_PUMPS, [])
+                        if not (ttype == "reservoir" and p["reservoir_id"] == tid)],
+        })
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return self.async_show_menu(step_id="init", menu_options=["map_target", "settings"])
 
@@ -211,6 +234,8 @@ class CannalogOptionsFlow(OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             self._target_key = user_input["target"]
+            if self._targets.get(self._target_key, {}).get("deleted"):
+                return self._unlink(self._targets[self._target_key])
             return await self.async_step_sensors()
 
         sync = self.config_entry.runtime_data
@@ -234,6 +259,18 @@ class CannalogOptionsFlow(OptionsFlow):
                 self._targets[key] = {"type": ttype, "id": t["id"], "name": t["name"]}
                 tick = " ✓" if key in mapped else ""
                 options.append(SelectOptionDict(value=key, label=f"{icon} {t['name']} ({ttype}){tick}"))
+        # Anything still linked here but gone from Cannalog (deleted there)
+        # can't be picked above, so list it to unlink: its readings are
+        # rejected on every upload until it's removed. Only for target types
+        # this server lists (an older server has no zones list).
+        listed = {ttype for ttype, k in (("environment", "environments"), ("zone", "zones"),
+                                         ("reservoir", "reservoirs")) if k in data}
+        for key, name in self._linked_names().items():
+            ttype, tid = key.split(":", 1)
+            if ttype in listed and key not in self._targets:
+                self._targets[key] = {"type": ttype, "id": tid, "name": name, "deleted": True}
+                options.append(SelectOptionDict(
+                    value=key, label=f"🗑 {name} ({ttype}, deleted in Cannalog, select to unlink)"))
         if not options:
             return self.async_abort(reason="no_targets")
 
