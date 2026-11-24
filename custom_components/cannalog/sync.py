@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time
 import logging
 from typing import Any
 
@@ -33,6 +33,8 @@ from .const import (
     LIVE_FRAME_INTERVAL,
     LIVE_FRAME_SIZE,
     LIVE_POLL_TIMEOUT,
+    LIGHTS_OFF_FIELD,
+    LIGHTS_ON_FIELD,
     OPT_CAMERAS,
     OPT_LIVE_AUDIO,
     OPT_SNAPSHOT_INTERVAL,
@@ -52,6 +54,24 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
+
+
+def lights_on(cam: dict[str, Any], now: datetime | None = None) -> bool:
+    """Whether a camera's lights are on now (HA local time). No schedule set
+    = always on. The window may cross midnight (on 18:00, off 06:00)."""
+    on, off = cam.get(LIGHTS_ON_FIELD), cam.get(LIGHTS_OFF_FIELD)
+    if not on or not off:
+        return True
+    try:
+        t_on, t_off = time.fromisoformat(on), time.fromisoformat(off)
+    except ValueError:
+        return True
+    t = (now or dt_util.now()).time()
+    if t_on == t_off:
+        return True  # 24 h on
+    if t_on < t_off:
+        return t_on <= t < t_off
+    return t >= t_on or t < t_off
 
 
 def _iso(when: datetime) -> str:
@@ -273,6 +293,9 @@ class CannalogSync:
         self._snapping = True
         try:
             for cam in self.cameras:
+                if not lights_on(cam):
+                    _LOGGER.debug("Cannalog: lights off for %s, no snapshot", cam["entity_id"])
+                    continue
                 try:
                     content, content_type = await self._grab_image(cam["entity_id"], timeout=20)
                     stamp = dt_util.utcnow().replace(microsecond=0).isoformat().replace("+00:00", "Z")

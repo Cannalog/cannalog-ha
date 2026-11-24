@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
+    TimeSelector,
 )
 
 from .api import CannalogApi, CannalogAuthError, CannalogConnectionError, CannalogError
@@ -40,6 +41,8 @@ from .const import (
     CAMERA_FIELD,
     DEFAULT_SNAPSHOT_INTERVAL,
     INTERVAL_CHOICES,
+    LIGHTS_OFF_FIELD,
+    LIGHTS_ON_FIELD,
     METRICS,
     OPT_CAMERAS,
     OPT_INTERVAL,
@@ -289,7 +292,10 @@ class CannalogOptionsFlow(OptionsFlow):
         current = {m["metric"]: m["entity_id"] for m in self._mappings()
                    if m["target_type"] == target["type"] and m["target_id"] == target["id"]}
 
-        if user_input is not None:
+        errors: dict[str, str] = {}
+        if user_input is not None and bool(user_input.get(LIGHTS_ON_FIELD)) != bool(user_input.get(LIGHTS_OFF_FIELD)):
+            errors["base"] = "lights_both"
+        elif user_input is not None:
             keep = [m for m in self._mappings()
                     if not (m["target_type"] == target["type"] and m["target_id"] == target["id"])]
             for metric in metrics:
@@ -308,7 +314,9 @@ class CannalogOptionsFlow(OptionsFlow):
                         if c["environment_id"] != target["id"]]
                 if user_input.get(CAMERA_FIELD):
                     cams.append({"environment_id": target["id"], "environment_name": target["name"],
-                                 "entity_id": user_input[CAMERA_FIELD]})
+                                 "entity_id": user_input[CAMERA_FIELD],
+                                 LIGHTS_ON_FIELD: user_input.get(LIGHTS_ON_FIELD) or None,
+                                 LIGHTS_OFF_FIELD: user_input.get(LIGHTS_OFF_FIELD) or None})
                 changes[OPT_CAMERAS] = cams
             if target["type"] == "reservoir":
                 pumps = [p for p in self.config_entry.options.get(OPT_PUMPS, [])
@@ -326,10 +334,18 @@ class CannalogOptionsFlow(OptionsFlow):
             schema[vol.Optional(metric, description={"suggested_value": current.get(metric)})] = \
                 EntitySelector(EntitySelectorConfig(domain="sensor"))
         if target["type"] == "environment":
-            camera = next((c["entity_id"] for c in self.config_entry.options.get(OPT_CAMERAS, [])
-                           if c["environment_id"] == target["id"]), None)
-            schema[vol.Optional(CAMERA_FIELD, description={"suggested_value": camera})] = \
+            cam = next((c for c in self.config_entry.options.get(OPT_CAMERAS, [])
+                        if c["environment_id"] == target["id"]), None) or {}
+            if user_input is not None:  # re-shown with an error: keep what was entered
+                cam = {"entity_id": user_input.get(CAMERA_FIELD),
+                       LIGHTS_ON_FIELD: user_input.get(LIGHTS_ON_FIELD),
+                       LIGHTS_OFF_FIELD: user_input.get(LIGHTS_OFF_FIELD)}
+            schema[vol.Optional(CAMERA_FIELD, description={"suggested_value": cam.get("entity_id")})] = \
                 EntitySelector(EntitySelectorConfig(domain="camera"))
+            schema[vol.Optional(LIGHTS_ON_FIELD, description={"suggested_value": cam.get(LIGHTS_ON_FIELD)})] = \
+                TimeSelector()
+            schema[vol.Optional(LIGHTS_OFF_FIELD, description={"suggested_value": cam.get(LIGHTS_OFF_FIELD)})] = \
+                TimeSelector()
         if target["type"] == "reservoir":
             pump = next((p for p in self.config_entry.options.get(OPT_PUMPS, [])
                          if p["reservoir_id"] == target["id"]), None) or {}
@@ -343,6 +359,7 @@ class CannalogOptionsFlow(OptionsFlow):
             step_id=f"sensors_{target['type']}",
             data_schema=vol.Schema(schema),
             description_placeholders={"target": target["name"]},
+            errors=errors,
             last_step=True,
         )
 

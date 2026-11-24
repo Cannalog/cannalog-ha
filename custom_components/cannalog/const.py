@@ -1,7 +1,7 @@
 """Constants for the Cannalog integration."""
 
 DOMAIN = "cannalog"
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 DEFAULT_API_URL = "https://api.cannalog.co.za"
 
@@ -23,6 +23,11 @@ OPT_SNAPSHOT_INTERVAL = "snapshot_interval"  # minutes
 DEFAULT_SNAPSHOT_INTERVAL = 30
 SNAPSHOT_INTERVAL_CHOICES = [5, 10, 15, 30, 60]
 CAMERA_FIELD = "camera"
+# Optional light schedule per camera (HA local time, "HH:MM:SS"). With both
+# set, snapshots are only taken while the lights are on; the window may cross
+# midnight (on 18:00, off 06:00).
+LIGHTS_ON_FIELD = "lights_on"
+LIGHTS_OFF_FIELD = "lights_off"
 
 # Irrigation: a pump / valve entity per reservoir. Every on -> off is sent to
 # Cannalog as a feed cycle (logged for every plant the reservoir feeds).

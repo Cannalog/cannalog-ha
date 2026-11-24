@@ -56,7 +56,7 @@
       },
       "sensors_environment": {
         "title": "Sensors for {target}",
-        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it. Pick a camera to show its latest snapshot on this environment in the app.",
+        "description": "Choose the Home Assistant sensor for each reading. Leave a field empty to not send it. Pick a camera to show its latest snapshot on this environment in the app.\n\n**Lights on / Lights off**: snapshots are only taken between these times (Home Assistant's time zone), so the app keeps the last photo from when the lights were on. Lights off can be after midnight. Leave both empty to take snapshots around the clock.",
         "data": {
           "temperature": "Air temperature",
           "humidity": "Relative humidity",
@@ -65,7 +65,9 @@
           "dew_point": "Dew point",
           "co2": "CO2 (ppm)",
           "ppfd": "PPFD (µmol/m²/s)",
-          "camera": "Camera (snapshot)"
+          "camera": "Camera (snapshot)",
+          "lights_on": "Lights on",
+          "lights_off": "Lights off"
         }
       },
       "sensors_zone": {
@@ -97,7 +99,7 @@
       },
       "settings": {
         "title": "Upload settings",
-        "description": "Readings are averaged over each interval and uploaded at the end of it. Camera snapshots are sent at their own interval; Cannalog keeps only the latest one, and frames taken with the lights off are ignored. **Send audio with live video** forwards the camera's microphone while someone has the live view open (off by default: the mic hears whatever is near the camera).",
+        "description": "Readings are averaged over each interval and uploaded at the end of it. Camera snapshots are sent at their own interval; Cannalog keeps only the latest one. Set the lights on and off times on each environment to skip snapshots while the lights are off. **Send audio with live video** forwards the camera's microphone while someone has the live view open (off by default: the mic hears whatever is near the camera).",
         "data": {
           "interval": "Readings interval",
           "snapshot_interval": "Camera snapshot interval",
@@ -109,6 +111,9 @@
       "cannot_connect": "Could not reach the Cannalog server.",
       "auth_failed": "Cannalog rejected the token - re-connect the integration.",
       "no_targets": "Your Cannalog account has no environments, zones or reservoirs yet - create one in the app first."
+    },
+    "error": {
+      "lights_both": "Set both Lights on and Lights off, or leave both empty."
     }
   },
   "entity": {

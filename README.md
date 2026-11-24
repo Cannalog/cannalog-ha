@@ -36,7 +36,7 @@ Units are converted automatically (°F → °C, µS/cm → mS/cm).
 
 ### Camera snapshots
 
-Any Home Assistant `camera` entity can be mapped to an environment. A still frame is sent at the snapshot interval and shown on that environment in the Cannalog app. Cannalog keeps only the latest frame, not a history. Near-black frames (lights off) are ignored, so the app keeps showing the last lit view overnight.
+Any Home Assistant `camera` entity can be mapped to an environment. A still frame is sent at the snapshot interval and shown on that environment in the Cannalog app. Cannalog keeps only the latest frame, not a history. Set **Lights on** and **Lights off** times on the environment (Configure → Map sensors) and snapshots are only taken while the lights are on, so the app keeps showing the last lit view overnight. Lights off can be after midnight. Leave both empty to send snapshots around the clock.
 
 **Live view.** Tap **LIVE** on the environment's cover in the app to watch the camera. Home Assistant only sends anything while the viewer is open: it asks Cannalog over its own outbound connection, so nothing is opened into your network, and the view pauses after 10 minutes.
 
